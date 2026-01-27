@@ -741,6 +741,7 @@ name = "evo-data-converters"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "evo-data-converters-ags" },
     { name = "evo-data-converters-common" },
     { name = "evo-data-converters-duf", marker = "sys_platform == 'win32'" },
     { name = "evo-data-converters-gocad" },
@@ -765,6 +766,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "evo-data-converters-ags", editable = "packages/ags" },
     { name = "evo-data-converters-common", editable = "packages/common" },
     { name = "evo-data-converters-duf", marker = "sys_platform == 'win32'", editable = "packages/duf" },
     { name = "evo-data-converters-gocad", editable = "packages/gocad" },
