@@ -21,7 +21,7 @@ from python_ags4 import AGS4
 import evo.logging
 from evo.data_converters.common.objects.downhole_collection.column_mapping import ColumnMapping
 
-from .pandas_utils import coerce_to_object_int
+from .pandas_utils import coerce_to_numeric
 
 logger = evo.logging.getLogger("data_converters")
 
@@ -249,10 +249,10 @@ class AgsContext:
             for col, typ in zip(df.columns, type_codes):
                 category = self.TYPE_CATEGORY.get(typ)
                 if category == "int":
-                    # Convert to an object dtype with integers and pd.NA's, can be inferred as integer type.
-                    df[col] = coerce_to_object_int(df[col])
+                    # Int64 is a nullable int type, not to be confused with int64.
+                    df[col] = coerce_to_numeric(df[col]).astype("Int64")
                 elif category == "float":
-                    df[col] = pd.to_numeric(df[col], errors="coerce")
+                    df[col] = coerce_to_numeric(df[col]).astype("float64")
                 elif category == "datetime":
                     # Check if a datetime format is specified in the UNIT row (index 0)
                     unit_format = str(unit_row[col])
