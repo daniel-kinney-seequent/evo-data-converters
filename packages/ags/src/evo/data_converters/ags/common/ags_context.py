@@ -608,6 +608,10 @@ class AgsContext:
 
                 # Concatenate and remove duplicates
                 merged_table = pd.concat([self_table, other_table], ignore_index=True)
+                deduped_table = merged_table.drop_duplicates(ignore_index=True)
+                if len(deduped_table) < len(merged_table):
+                    logger.warning(f"Duplicate rows were dropped from {group}")
+                    merged_table = deduped_table
                 merged_table = merged_table.drop_duplicates(ignore_index=True)
                 self.set_table(group, merged_table)
 
