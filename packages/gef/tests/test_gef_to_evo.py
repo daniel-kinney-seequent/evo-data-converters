@@ -555,10 +555,10 @@ async def test_import_multiple_with_different_attributes(evo_metadata, data_clie
     table_1 = cpt_data.cpt_tables[0]
     table_2 = cpt_data.cpt_tables[1]
     # The first table should have "porePressureU2" and "correctedConeResistance", which the second one lacks
-    assert not table_1["porePressureU2"].isnull().all()
-    assert not table_1["correctedConeResistance"].isnull().all()
-    assert table_2["porePressureU2"].isnull().all()
-    assert table_2["correctedConeResistance"].isnull().all()
+    assert not table_1["pore_pressure_u2"].isnull().all()
+    assert not table_1["corrected_cone_resistance"].isnull().all()
+    assert table_2["pore_pressure_u2"].isnull().all()
+    assert table_2["corrected_cone_resistance"].isnull().all()
 
     # Spot check that the collar attributes also get padded to null
     for attr in _gef_cpt_spec_1.collar_attributes.keys() - _gef_cpt_spec_2.collar_attributes.keys():
