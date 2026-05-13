@@ -31,7 +31,6 @@ from evo.common.data import Environment
 from evo.common.interfaces import ICache, IContext
 from evo.data_converters.common import EvoWorkspaceMetadata, create_evo_object_service_and_data_client
 from evo.data_converters.gef.importer import convert_gef
-from evo.data_converters.gef.objects import DownholeCollection, DownholeCollectionData
 from evo.objects.client.object_client import DownloadedObject
 from evo.objects.data import ObjectReference, ObjectSchema
 
@@ -506,6 +505,48 @@ __bro_xml_spec_1b = _CPTSpec(
 )
 
 
+# Inspired by test_pointset.py from evo-python-sdk
+@contextlib.contextmanager
+def _mock_geoscience_objects(environment):
+    mock_client = MockClient(environment)
+    with (
+        patch("evo.objects.io.ObjectDataUpload.upload_from_cache"),
+        patch("evo.objects.typed.base.create_geoscience_object", mock_client.create_geoscience_object),
+    ):
+        yield mock_client
+
+
+# Copied from evo-objects/tests/typed/helpers.py
+class TestContext(IContext):
+    def __init__(self, mock_metadata):
+        self._mock_metadata: EvoWorkspaceMetadata = mock_metadata
+
+        object_service_client, data_client = create_evo_object_service_and_data_client(
+            evo_workspace_metadata=mock_metadata
+        )
+
+        self._connector = data_client._connector
+        self._cache = data_client._cache
+
+        self._org_id = uuid.uuid4()
+
+    def get_environment(self) -> Environment:
+        return Environment(
+            hub_url=self._mock_metadata.hub_url,
+            org_id=self.get_org_id(),
+            workspace_id=UUID(self._mock_metadata.workspace_id),
+        )
+
+    def get_org_id(self) -> UUID:
+        return self._org_id
+
+    def get_connector(self) -> APIConnector:
+        return self._connector
+
+    def get_cache(self) -> ICache | None:
+        return self._cache
+
+
 @pytest.mark.asyncio
 async def test_import_gef_1(evo_metadata, data_client):
     context = TestContext(mock_metadata=evo_metadata)
@@ -600,42 +641,9 @@ async def test_can_override_crs(evo_metadata, data_client):
     assert gef_object_dict["coordinate_reference_system"]["epsg_code"] == 32650
 
 
-# TODO - The test code for mocking was mostly copy/pasted. The assumption is that the tests that require them will
-#  be moved to evo-python-sdk.
+# The test code below for mocking was copy/pasted from `evo-python-sdk` `evo-objects/tests/typed/helpers.py`.
 
 
-# Copied from evo-objects/tests/typed/helpers.py
-class TestContext(IContext):
-    def __init__(self, mock_metadata):
-        self._mock_metadata: EvoWorkspaceMetadata = mock_metadata
-
-        object_service_client, data_client = create_evo_object_service_and_data_client(
-            evo_workspace_metadata=mock_metadata
-        )
-
-        self._connector = data_client._connector
-        self._cache = data_client._cache
-
-        self._org_id = uuid.uuid4()
-
-    def get_environment(self) -> Environment:
-        return Environment(
-            hub_url=self._mock_metadata.hub_url,
-            org_id=self.get_org_id(),
-            workspace_id=UUID(self._mock_metadata.workspace_id),
-        )
-
-    def get_org_id(self) -> UUID:
-        return self._org_id
-
-    def get_connector(self) -> APIConnector:
-        return self._connector
-
-    def get_cache(self) -> ICache | None:
-        return self._cache
-
-
-# Copied from evo-objects/tests/typed/helpers.py
 class MockDownloadedObject(DownloadedObject):
     def __init__(self, mock_client: MockClient, object_dict: dict, version_id: str = "1"):
         self.mock_client = mock_client
@@ -697,13 +705,11 @@ class MockDownloadedObject(DownloadedObject):
         return MockDownloadedObject(self.mock_client, object_dict, new_version_id)
 
 
-# Mostly copied from evo-python-sdk
 class MockClient:
     def __init__(self, environment: Environment):
         self.environment = environment
         self.data = {}
         self.objects = {}
-        # self.geo_objects = {}
 
     def get_dataframe(self, data: dict) -> pd.DataFrame:
         return self.data[data["data"]]
@@ -733,7 +739,6 @@ class MockClient:
         object_dict = object_dict.copy()
         object_dict["uuid"] = str(uuid.uuid4())
         self.objects[object_dict["uuid"]] = copy.deepcopy(object_dict)
-        # self.geo_objects[object_dict["uuid"]] = models.GeoscienceObject.model_validate(object_dict)
         return MockDownloadedObject(self, object_dict)
 
     async def replace_geoscience_object(
@@ -749,93 +754,3 @@ class MockClient:
         assert reference.object_id is not None, "Reference must have an object ID"
         object_dict = copy.deepcopy(self.objects[str(reference.object_id)])
         return MockDownloadedObject(self, object_dict)
-
-
-# Inspired by test_pointset.py from evo-python-sdk
-@contextlib.contextmanager
-def _mock_geoscience_objects(environment):
-    mock_client = MockClient(environment)
-    with (
-        patch("evo.objects.io.ObjectDataUpload.upload_from_cache"),
-        patch("evo.objects.typed.base.create_geoscience_object", mock_client.create_geoscience_object),
-    ):
-        yield mock_client
-
-
-# TODO - Fix this test and move it wherever the "typed" DHC code ends up
-@pytest.mark.skip
-@pytest.mark.asyncio
-async def test_typed_dhc(evo_metadata, data_client):
-    hole1 = pd.DataFrame(
-        {
-            "depth": [1.0, 2, 3, 4, 5, 6],
-            "dip": [90.0, 90, 90, 90, 90, 90],
-            "azimuth": [0.0, 0, 0, 0, 0, 0],
-            "attr1": [
-                "oh",
-                "bye",
-                "oh",
-                "bye",
-                "oh",
-                "bye",
-            ],
-        }
-    )
-
-    hole2 = pd.DataFrame(
-        {
-            "depth": [0.0, 1, 2, 3, 4, 5],
-            "dip": [90.0, 90, 90, 90, 90, 90],
-            "azimuth": [0.0, 0, 0, 0, 0, 0],
-            "attr1": [
-                "hi",
-                "okay",
-                "hi",
-                "okay",
-                "hi",
-                "okay",
-            ],
-            "attr2": [1.1, 2.2, 3.3, 4.4, 5.5, 6.6],
-        }
-    )
-
-    context = TestContext(mock_metadata=evo_metadata)
-
-    with _mock_geoscience_objects(context.get_environment()) as mock_client:
-        dhc_data = DownholeCollectionData(
-            name="test DHC",
-            holes=[
-                hole1,
-                hole2,
-            ],
-            properties=pd.DataFrame(
-                {
-                    "id": ["id 1", "id 2"],
-                    "x": [0.0, 1],
-                    "y": [0.0, 20],
-                    "z": [0.0, 300],
-                    "final": [1.0, 4],
-                    "current": [2.0, 5],
-                    "target": [3.0, 6],
-                }
-            ),
-            attributes=pd.DataFrame(
-                {
-                    "attr1": [1, 2],
-                    "attr2": [1.1, 2.2],
-                    "attr3": ["hi", "there"],
-                }
-            ),
-        )
-
-        await DownholeCollection.create(context, dhc_data)
-
-        gef_object_dict, *_ = mock_client.objects.values()
-        cpt_data = _CPTData.from_gef_dict(gef_object_dict, data_client)
-
-        # TODO - temporary
-        assert len(cpt_data.cpt_tables) == 0
-
-        # TODO - This is just a spot check. This test might just be temporary anyway.
-        assert list(cpt_data.bbox) == [0.0, 1.0, 0.0, 20.0, -6.0, 300.0]
-        assert list(cpt_data.geometries[1]["depth"]) == [0.0, 1.0, 2.0, 3.0, 4.0, 5.0]

@@ -20,9 +20,9 @@ from evo.data_converters.common import (
 )
 from evo.data_converters.gef.converter import parse_gef_files
 from evo.data_converters.gef.converter.gef_to_downhole_collection import build_downhole_collection, process_cpt_files
-from evo.data_converters.gef.objects import DownholeCollection
 from evo.objects import ObjectReference
 from evo.objects.data import ObjectMetadata
+from evo.objects.typed import downhole_collection as typed_dhc
 
 logger = evo.logging.getLogger("data_converters")
 
@@ -101,6 +101,12 @@ async def convert_gef(
             if not upload_path.lower().endswith(".json"):
                 upload_path += ".json"
             ref = ObjectReference.new(data_client._environment, object_path=upload_path)
-            return [(await DownholeCollection.create_or_replace(context, ref, downhole_collection_data)).metadata]
+            return [
+                (await typed_dhc.DownholeCollection.create_or_replace(context, ref, downhole_collection_data)).metadata
+            ]
         else:
-            return [(await DownholeCollection.create(context, downhole_collection_data, path=upload_path)).metadata]
+            return [
+                (
+                    await typed_dhc.DownholeCollection.create(context, downhole_collection_data, path=upload_path)
+                ).metadata
+            ]

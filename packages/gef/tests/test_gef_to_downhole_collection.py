@@ -24,10 +24,11 @@ from pygef.common import Location as PyGEFoLcation
 from pygef.common import VerticalDatumClass
 from pygef.cpt import CPTData
 
+from evo.objects.typed import downhole_collection as typed_dhc
+
 from evo.data_converters.gef.common_gef import CPTSource, ParsedCptFile
 from evo.data_converters.gef.converter.gef_spec import CAMEL_TO_SNAKE
 from evo.data_converters.gef.converter.gef_to_downhole_collection import build_downhole_collection, process_cpt_file
-from evo.data_converters.gef.objects import DownholeCollectionData
 
 CRS1 = "EPSG:28992"
 CRS2 = "EPSG:4326"
@@ -471,7 +472,7 @@ class TestCPT:
             assert np.array_equal(actual_col, expected_col)
         assert np.array_equal(collection["distance"], DEFAULT_TABLE["penetrationLength"][self.table_rows])
 
-    def check_dhc(self, dhc: DownholeCollectionData):
+    def check_dhc(self, dhc: typed_dhc.DownholeCollectionData):
         assert dhc.name == f"GEF CPT hole {self.hole_index}"
         self.check(
             collar_attributes=dhc.attributes.iloc[0],
@@ -498,7 +499,7 @@ class TestCPT:
         self._check_collections(collection)
 
 
-def check_dhc(dhc: DownholeCollectionData, test_cpts: list[TestCPT]):
+def check_dhc(dhc: typed_dhc.DownholeCollectionData, test_cpts: list[TestCPT]):
     assert len(dhc.holes) == len(dhc.collections[0].holes), "For GEF import, the path and collection should correspond"
     for i in range(len(dhc.holes)):
         path_offset = dhc.holes["offset"].iloc[i]
@@ -578,7 +579,7 @@ def cpt(test_cpt1) -> ParsedCptFile:
     return test_cpt1.build_parsed_cpt()
 
 
-def _process_cpt(cpt: ParsedCptFile | list[ParsedCptFile]) -> DownholeCollectionData:
+def _process_cpt(cpt: ParsedCptFile | list[ParsedCptFile]) -> typed_dhc.DownholeCollectionData:
     cpts = cpt if isinstance(cpt, list) else [cpt]
     processed = [process_cpt_file(c) for c in cpts]
     return build_downhole_collection(processed)
@@ -856,11 +857,11 @@ class TestApplyMeasurementUnits:
 
         # Checking the units as they get sent to Evo
         path_descs = dhc.path.attrs["attribute_descriptions"]
-        assert path_descs["distance"].unit.value == "m"
+        assert path_descs["distance"].unit == "m"
         coll_descs = dhc.collections[0].distance_table.attrs["attribute_descriptions"]
-        assert coll_descs["cone_resistance"].unit.value == "MPa"
-        assert coll_descs["local_friction"].unit.value == "MPa"
-        assert coll_descs["soil_density"].unit.value == "N/m3"
+        assert coll_descs["cone_resistance"].unit == "MPa"
+        assert coll_descs["local_friction"].unit == "MPa"
+        assert coll_descs["soil_density"].unit == "N/m3"
         assert "friction_ratio_computed" not in coll_descs
 
 
