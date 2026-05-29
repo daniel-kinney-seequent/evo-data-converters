@@ -16,18 +16,25 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from evo_schemas.elements import UnitLength_V1_0_1_UnitCategories as UnitLength
+from pint import UndefinedUnitError
 from pint_pandas import PintType
 from pygef.common import Location as PygefLocation
 from pygef.cpt import CPTData
 
 import evo.logging
+from evo.data_converters.common import (
+    CrsDescription,
+    InvalidCRSError,
+    UnspecifiedCrsDescription,
+    crs_description_from_any,
+)
+from evo.data_converters.common.objects.units import UnitMapper
+from evo.data_converters.gef.common_gef import CPTSource, ParsedCptFile
 from evo.objects.typed import attributes as typed_attrs
 from evo.objects.typed import downhole_collection as typed_dhc
 from evo.objects.typed.types import EpsgCode
 
-from ...common import InvalidCRSError, crs_from_any
-from ...common.objects.units import UnitMapper
-from ..common_gef import CPTSource, ParsedCptFile
 from .gef_spec import (
     CAMEL_TO_SNAKE,
     COLLAR_ATTRIBUTES,
@@ -84,7 +91,7 @@ class _Location:
     x: float
     y: float
     z: float
-    crs: int | str | None
+    crs: CrsDescription
 
     def xyz_dict(self):
         return {
@@ -92,6 +99,9 @@ class _Location:
             "y": self.y,
             "z": self.z,
         }
+
+    def get_crs(self) -> int | str | None:
+        return self.crs.code
 
 
 @dataclasses.dataclass
@@ -130,25 +140,18 @@ def process_cpt_file(cpt: ParsedCptFile) -> ProcessedCPT:
     )
 
 
-def _extract_crs(location: PygefLocation) -> int | str | None:
+def _extract_crs(location: PygefLocation) -> CrsDescription:
     # For GEF, pygef infers srs_name from GEF's bespoke CRS description in the #XYID header
     srs_name = location.srs_name
     try:
-        crs: int | str | None = crs_from_any(srs_name)
+        crs = crs_description_from_any(srs_name)
     except InvalidCRSError:
         logger.warning(f"Invalid or unrecognized CRS description: '{srs_name}'")
-        return None
+        crs = UnspecifiedCrsDescription()
 
-    if hasattr(crs, "epsg_code"):
-        crs = EpsgCode(crs.epsg_code)
-    elif hasattr(crs, "ogc_wkt"):
-        crs = crs.ogc_wkt
-    else:  # "unspecified"
-        crs = None
-
-    if crs == 404000:
+    if crs.code == 404000:
         logger.warning(f"Invalid or unrecognized CRS description: '{srs_name}'")
-        crs = None
+        crs = UnspecifiedCrsDescription()
 
     return crs
 
@@ -357,6 +360,7 @@ def build_downhole_collection(
     paths = _build_paths(_combined_table)
     collections = _build_collections(_combined_table, hole_descriptions)
     crs = EpsgCode(epsg_code) if epsg_code is not None else _get_crs(cpts)
+    distance_unit = _get_distance_unit(cpts)
 
     return typed_dhc.DownholeCollectionData(
         name=name,
@@ -367,6 +371,7 @@ def build_downhole_collection(
         holes=hole_descriptions,
         properties=hole_properties,
         attributes=attributes,
+        distance_unit=distance_unit,
     )
 
 
@@ -398,7 +403,7 @@ def _build_attributes(cpts: list[ProcessedCPT]) -> pd.DataFrame:
             row["project_id"] = cpt.project_id
         if cpt.delivered_location is not None:
             loc = cpt.delivered_location
-            row |= {"delivered_x": loc.x, "delivered_y": loc.y, "delivered_crs": loc.crs}
+            row |= {"delivered_x": loc.x, "delivered_y": loc.y, "delivered_crs": loc.get_crs()}
         row |= cpt.hole_attributes
         rows.append(row)
     df = pd.DataFrame(rows)
@@ -479,7 +484,7 @@ def _build_collections(combined_table: pd.DataFrame, holes: pd.DataFrame) -> lis
     return [dc]
 
 
-def _get_crs(cpts: list[ProcessedCPT]) -> int | str | None:
+def _get_crs(cpts: list[ProcessedCPT]) -> EpsgCode | str | None:
     """
     Grab the first specified CRS from the processed CPT data.
 
@@ -489,7 +494,7 @@ def _get_crs(cpts: list[ProcessedCPT]) -> int | str | None:
     if len(valid_crs) == 0:
         return None
 
-    # Arbitrarily rab the first specified CRS
+    # Arbitrarily grab the first specified CRS
     crs = valid_crs[0]
 
     for other_crs in valid_crs:
@@ -497,4 +502,45 @@ def _get_crs(cpts: list[ProcessedCPT]) -> int | str | None:
             logger.warning(f"Conflicting CRS descriptions. {crs}, {other_crs}. Picking the first.")
             break
 
-    return crs
+    if isinstance(crs.code, int):
+        return EpsgCode(crs.code)
+    else:
+        return crs.code
+
+
+# TODO - unit tests for this
+def _get_distance_unit(cpts: list[ProcessedCPT]) -> str | None:
+    valid_crs = [cpt.location.crs for cpt in cpts if cpt.location.crs is not None]
+    if len(valid_crs) == 0:
+        return None
+
+    # Arbitrarily grab the first specified CRS
+    crs = valid_crs[0]
+
+    if crs.crs is None:
+        return None
+
+    axis_info = crs.crs.axis_info
+    if len(axis_info) == 0:
+        logger.warning("Missing `distance_unit` data")
+        return None
+
+    # Arbitrarily pick the first axis - assume the unit is the same for other axes
+    axis = axis_info[0]
+
+    # Convert from the unit description in `axis` to the schema representation. In the case I spot checked, "axis"
+    # shows "metre", which has to become "m" for the schema
+    try:
+        pd_dtype = pd.api.types.pandas_dtype(f"pint[{axis.unit_name}]")
+    except UndefinedUnitError:
+        logger.warning(f"Unhandled distance unit `{axis.unit_name}`")
+        return None
+    unit = UnitMapper.lookup(pd_dtype)
+
+    if unit not in UnitLength:
+        logger.warning(f'Unit {unit} is not a "length" type unit and was discarded')
+        return None
+
+    if unit is None:
+        logger.warning(f"Unmapped distance unit for dtype` {pd_dtype}`")
+    return UnitMapper.lookup(pd_dtype).value

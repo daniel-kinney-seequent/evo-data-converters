@@ -24,11 +24,10 @@ from pygef.common import Location as PyGEFoLcation
 from pygef.common import VerticalDatumClass
 from pygef.cpt import CPTData
 
-from evo.objects.typed import downhole_collection as typed_dhc
-
 from evo.data_converters.gef.common_gef import CPTSource, ParsedCptFile
 from evo.data_converters.gef.converter.gef_spec import CAMEL_TO_SNAKE
 from evo.data_converters.gef.converter.gef_to_downhole_collection import build_downhole_collection, process_cpt_file
+from evo.objects.typed import downhole_collection as typed_dhc
 
 CRS1 = "EPSG:28992"
 CRS2 = "EPSG:4326"
@@ -678,15 +677,15 @@ class TestCRS:
         assert dhc.coordinate_reference_system == 4326
 
     @pytest.mark.parametrize("invalid_crs", ["", "blah", "123", ":", "EPSG:", ":4326"])
-    def test_build_without_epsg_raises_error(self, cpt, invalid_crs: str):
+    def test_build_without_epsg_return_unspecified(self, cpt, invalid_crs: str):
         cpt.data.delivered_location.srs_name = invalid_crs
         dhc = _process_cpt(cpt)
-        assert dhc.coordinate_reference_system is None
+        assert dhc.coordinate_reference_system == "unspecified"
 
     def test_epsg_404000_treated_as_unspecified(self, cpt):
         cpt.data.delivered_location.srs_name = "urn:ogc:def:crs:EPSG::404000"
         dhc = _process_cpt(cpt)
-        assert dhc.coordinate_reference_system is None
+        assert dhc.coordinate_reference_system == "unspecified"
 
 
 class TestCalculateFinalDepth:

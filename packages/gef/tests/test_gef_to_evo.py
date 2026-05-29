@@ -48,6 +48,7 @@ class _CPTSpec:
     sum_dips: float
     bbox: tuple[float, float, float, float, float, float]
     crs: str
+    distance_unit: str | None
 
 
 EXPECTED_PATH_ATTRIBUTES = [
@@ -72,6 +73,7 @@ class _CPTData:
         path_attr_tables,
         bbox,
         crs,
+        distance_unit,
     ):
         self.cpt_tables = cpt_tables
         self.collar_attributes = collar_attributes
@@ -82,6 +84,7 @@ class _CPTData:
         self.path_attr_tables = path_attr_tables
         self.bbox = bbox
         self.crs = crs
+        self.distance_unit = distance_unit
 
     @classmethod
     def from_gef_object(cls, gef_object, data_client):
@@ -94,6 +97,7 @@ class _CPTData:
         cpt_tables = _load_distance_collection(gef_object, data_client)
         bbox = _get_bbox(gef_object)
         crs = str(gef_object.coordinate_reference_system)
+        distance_unit = gef_object.distance_unit.value if gef_object.distance_unit else None
 
         if cpt_tables:
             # For GEF imports, the collection is supposed to match up exactly to the geometry definition
@@ -113,6 +117,7 @@ class _CPTData:
             path_attr_tables=path_attr_tables,
             bbox=bbox,
             crs=crs,
+            distance_unit=distance_unit,
         )
 
     @classmethod
@@ -200,6 +205,7 @@ class _CPTData:
 
         assert expected_collar_attributes == set(self.collar_attributes.columns.tolist())
         assert specs[0].crs == self.crs
+        assert specs[0].distance_unit == self.distance_unit
 
         for i, spec in enumerate(specs):
             assert spec.hole_id == self.hole_ids[i]
@@ -334,6 +340,7 @@ _gef_cpt_spec_1 = _CPTSpec(
         "measurementtext_114": ["2019, 01, 29"],
     },
     bbox=(79578.38, 79578.85203297655, 424838.968697291, 424839.9039877552, -20.094087662485098, -0.09),
+    distance_unit="m",
 )
 
 
@@ -427,6 +434,7 @@ _gef_cpt_spec_2 = _CPTSpec(
         "measurementtext_115": ["IMBRO, kwaliteitsregime"],
     },
     bbox=(116508.93743771227, 116509.0, 469889.95390897675, 469890.0, -12.009629784247299, -1.63),
+    distance_unit="m",
 )
 
 _bro_xml_spec_1a = _CPTSpec(
@@ -465,6 +473,8 @@ _bro_xml_spec_1a = _CPTSpec(
         "zlm_inclination_resultant_before": [0],
     },
     bbox=(52.36533659, 52.36533659, 5.60907955, 5.63490911152718, -3.0297745888314376, 4.41),
+    # Distance unit is "degrees", which isn't supported by the DownholeCollection schema
+    distance_unit=None,
 )
 
 __bro_xml_spec_1b = _CPTSpec(
@@ -502,6 +512,8 @@ __bro_xml_spec_1b = _CPTSpec(
         "zlm_inclination_resultant_before": [2],
     },
     bbox=(52.0201802, 52.0201802, 5.06352596, 5.06352596, -6.48, 0.09),
+    # Distance unit is "degrees", which isn't supported by the DownholeCollection schema
+    distance_unit=None,
 )
 
 

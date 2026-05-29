@@ -8,6 +8,7 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
+import dataclasses
 from typing import TypeAlias
 
 from evo_schemas.components import Crs_V1_0_1 as Crs
@@ -17,9 +18,43 @@ from pyproj import CRS
 from pyproj._crs import is_wkt
 from pyproj.exceptions import CRSError
 
-SchemaCrsCode: TypeAlias = Crs | Crs_EpsgCode | Crs_OgcWkt
+# SchemaCrsCode: TypeAlias = Crs_EpsgCode | Crs_OgcWkt | str
 
 UNSPECIFIED = "unspecified"
+
+
+@dataclasses.dataclass
+class EpsgDescription:
+    crs: CRS
+    code: int
+
+    @property
+    def schema(self) -> Crs_EpsgCode:
+        return Crs_EpsgCode(epsg_code=self.code)
+
+
+@dataclasses.dataclass
+class WktDescription:
+    crs: CRS
+    code: str
+
+    @property
+    def schema(self) -> Crs_OgcWkt:
+        return Crs_OgcWkt(ogc_wkt=self.code)
+
+
+@dataclasses.dataclass
+class UnspecifiedCrsDescription:
+    crs: None = None
+    code: str = UNSPECIFIED
+    schema: str = UNSPECIFIED
+
+    @staticmethod
+    def is_404(code: int | str):
+        return (isinstance(code, int) and code == 404000) or (isinstance(code, str) and "404000" in code)
+
+
+CrsDescription: TypeAlias = EpsgDescription | WktDescription | UnspecifiedCrsDescription
 
 
 class InvalidCRSError(ValueError):
@@ -36,7 +71,7 @@ def _is_epsg_code(auth_code: int | str) -> bool:
     return False
 
 
-def crs_from_epsg_code(epsg_code: int | str) -> Crs_EpsgCode:
+def crs_description_from_epsg_code(epsg_code: int | str) -> EpsgDescription | UnspecifiedCrsDescription:
     """Parse and validate an EPSG code.
 
     If valid, return the Crs geoscience object with the integer EPSG code.
@@ -50,16 +85,26 @@ def crs_from_epsg_code(epsg_code: int | str) -> Crs_EpsgCode:
     try:
         crs = CRS.from_user_input(epsg_code)
     except CRSError as e:
-        raise InvalidCRSError(f"Invalid or unrecognized EPSG code '{epsg_code}'") from e
+        if UnspecifiedCrsDescription.is_404(epsg_code):
+            return UnspecifiedCrsDescription()
+        else:
+            raise InvalidCRSError(f"Invalid or unrecognized EPSG code '{epsg_code}'") from e
 
     authority = crs.to_authority()
     if not authority or authority[0] != "EPSG":
         raise InvalidCRSError(f"Input '{epsg_code}' resolved to authority '{authority}', not EPSG")
 
-    return Crs_EpsgCode(epsg_code=int(authority[1]))
+    code = int(authority[1])
+
+    return EpsgDescription(crs, code)
 
 
-def crs_from_ogc_wkt(wkt_string: str) -> Crs_OgcWkt:
+def crs_from_epsg_code(epsg_code: int | str) -> Crs_EpsgCode | str:
+    """Create Epsg schema object. See `crs_description_from_epsg_code`."""
+    return crs_description_from_epsg_code(epsg_code).schema
+
+
+def crs_description_from_ogc_wkt(wkt_string: str) -> WktDescription | UnspecifiedCrsDescription:
     """Parse an OGC WKT string.
 
     If valid, return the Crs geoscience object with normalized WKT2 string.
@@ -70,21 +115,34 @@ def crs_from_ogc_wkt(wkt_string: str) -> Crs_OgcWkt:
         crs = CRS.from_wkt(wkt_string)
 
         # Return Crs with canonical WKT2 format
-        return Crs_OgcWkt(ogc_wkt=crs.to_wkt(version="WKT2_2019"))
+        code = crs.to_wkt(version="WKT2_2019")
+        return WktDescription(crs, code)
     except CRSError as e:
+        if UnspecifiedCrsDescription.is_404(wkt_string):
+            return UnspecifiedCrsDescription()
         raise InvalidCRSError(f"Invalid or unrecognized WKT string: {e}") from e
 
 
-def crs_unspecified() -> Crs:
+def crs_from_ogc_wkt(wkt_string: str) -> Crs_OgcWkt | str:
+    """Creates OgcWkt schema object. See `crs_description_from_ogc_wkt`."""
+    return crs_description_from_ogc_wkt(wkt_string).schema
+
+
+def crs_description_unspecified() -> UnspecifiedCrsDescription:
     """
-    When the Crs is not specified, the goescience Crs object is
+    When the Crs is not specified, the geoscience Crs object is
     returned as a simple string constant
     """
-    return UNSPECIFIED
+    return UnspecifiedCrsDescription()
 
 
-def crs_from_any(crs_def: str | int | None = None) -> SchemaCrsCode:
-    """Select the applicable function to create a Crs geoscience object from *crs_def*.
+def crs_unspecified() -> str:
+    """See `crs_description_unspecified`"""
+    return crs_description_unspecified().code
+
+
+def crs_description_from_any(crs_def: str | int | None = None) -> CrsDescription:
+    """Select the applicable function to create a Crs description object from *crs_def*.
 
     :raises InvalidCRSError: If the input is not a valid CRS definition.
 
@@ -98,10 +156,15 @@ def crs_from_any(crs_def: str | int | None = None) -> SchemaCrsCode:
         crs = crs_from_any("<valid OGC WKT string>")
     """
     if crs_def is None or crs_def == UNSPECIFIED:
-        return crs_unspecified()
+        return crs_description_unspecified()
     elif _is_epsg_code(crs_def):
-        return crs_from_epsg_code(crs_def)
+        return crs_description_from_epsg_code(crs_def)
     elif is_wkt(crs_def):
-        return crs_from_ogc_wkt(crs_def)
+        return crs_description_from_ogc_wkt(crs_def)
     else:
         raise InvalidCRSError(f"Invalid or unrecognized CRS definition: {crs_def}")
+
+
+def crs_from_any(crs_def: str | int | None = None) -> Crs:
+    """Create Crs schema object. See `crs_description_from_any`."""
+    return crs_description_from_any(crs_def).schema
